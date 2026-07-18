@@ -163,6 +163,56 @@ můžeme řídit společně a rozdělení přidat později.
 - Auto-discovery bridge, per-agent světla, dynamické efekty, systray, obnova původního
   stavu světel, podpora dalších agent nástrojů než Claude Code.
 
+### Open source (pro ostatní, později)
+
+Jádro (`StatusSource` / `LightProvider` / `Zone` + single-writer) na OSS připravuje z velké
+části už teď; většina bodů níže je aditivní. Materiálně se změní tohle:
+
+- **Stavy a mapování jako data**, ne pevný enum — každý si nadefinuje vlastní stavy,
+  hierarchii i barvy v configu.
+- **Veřejné, verzované schéma událostí** (`schemaVersion`) jako stabilní kontrakt, aby se
+  daly integrovat i jiné nástroje než Claude hooky (Cursor, Aider, obecný webhook).
+- **Plugin discovery přes SPI/ServiceLoader** místo compile-time drátování providerů.
+  **Home Assistant** jako jeden `LightProvider` = pokrytí stovek zařízení jednou integrací.
+- **Bezpečnost endpointu**: bind jen na `127.0.0.1` + volitelný auth token, popsaný threat
+  model, bezpečné uložení Hue klíče a práva na config.
+- **Distribuce daemona**: `jpackage`/`jlink` bundle s vlastním runtime, nebo **GraalVM
+  native-image** (jedna binárka bez JVM). Jediný bod, kde OSS tlačí na balení Javy.
+- **Onboarding cross-platform**: setup wizard (auto-discovery, párování, instalace hooků),
+  dokumentace, `CONTRIBUTING`, licence, sémantické verzování, CI.
+- **Simulátor pro přispěvatele**: mock `LightProvider` (výpis do konzole) + `simulate`
+  příkaz na injektování falešných událostí — vývoj a testy bez hardwaru.
+
+#### Distribuce hooků koncovým uživatelům
+
+Distribuují se **dvě věci zvlášť**: (1) daemon/aplikace přes release/balíčkovač, (2) zapojení
+hooků do `settings.json`. Klíčové zjednodušení: **hook nevolá `curl`, ale subcommand naší
+binárky** (`lights-integration ingest`) — přenositelné přes OS, sám si ošetří timeout,
+fail-safe (vždy exit 0) i nalezení portu daemona z configu. Předpokládá rychlý start binárky
+→ další argument pro **native-image**. Hook je „hloupá roura" (jen přepošle stdin), takže
+změny schématu žijí v daemonu a hook se nepřeinstalovává.
+
+Způsoby doručení (od nejlepšího):
+1. **Claude Code plugin** (marketplace) — `/plugin install`, hooky se aktivují/odeberou
+   automaticky s pluginem. Doručuje jen zapojení hooků, ne daemon. Přesný formát manifestu
+   ověřit z dokumentace Claude Code.
+2. **CLI `hooks install` / `hooks uninstall`** — sám bezpečně upraví `settings.json`:
+   merge (ne přepis), idempotentní, se zálohou; funguje i bez pluginů.
+3. **Manuální snippet v README** — fallback.
+
+Detaily: zapisovat do uživatelského `~/.claude/settings.json` (monitoring globálně, ne
+per-projekt), s volbou user-global vs. projekt (default global).
+
+Doporučení: pro OSS **plugin + `hooks install` zároveň**. Pro osobní MVP nic z toho není
+potřeba — stačí ručně vložený `curl` snippet.
+
+### Zabudovat už v MVP (levné teď, drahé později)
+
+I když se OSS dělá až později, tyhle tři věci se vyplatí upéct hned:
+1. **Verzované schéma událostí** (`schemaVersion` v JSONu na ingestu).
+2. **Config-driven stavy a mapování** místo napevno v kódu.
+3. **Bind jen na `127.0.0.1`** (auth token klidně až s OSS).
+
 ---
 
 ## 9. Nefunkční požadavky
