@@ -44,18 +44,26 @@ public final class Engine {
         return t;
     });
 
-    /** How often to repeat the Hue "breathe" while an agent's reminder is active. */
-    private static final Duration PULSE_PERIOD = Duration.ofSeconds(4);
+    /**
+     * Pulse = the engine itself alternating brightness (no Hue "breathe" alert, which keeps
+     * running on the bulb after a colour change). Each half-cycle fades for slightly less
+     * than its length. Pulsing stops on its own after {@code PULSE_DURATION}.
+     */
+    static final Duration PULSE_DURATION = Duration.ofMinutes(2);
+    private static final Duration PULSE_HALF = Duration.ofSeconds(2);
+    private static final Duration PULSE_FADE = Duration.ofMillis(1800);
+    private static final int PULSE_LOW_PERCENT = 15;
 
     private AgentState lastApplied;
     private boolean lastPulse;
+    private boolean pulseLow;
     private Instant lastPulseAt = Instant.EPOCH;
 
     /** Per-agent base state plus when it was entered (for time-based derivations). */
     private static final class AgentRecord {
         AgentState base;
         Instant since;
-        boolean reminded;
+        Instant remindedAt; // null = no active reminder
 
         AgentRecord(AgentState base, Instant since) {
             this.base = base;
@@ -83,7 +91,7 @@ public final class Engine {
         AgentRecord record = agents.get(event.agentId());
         if (event.reminder()) {
             if (record != null) {
-                record.reminded = true;
+                record.remindedAt = now;
                 recomputeAndApply();
             }
             return;
@@ -93,14 +101,14 @@ public final class Engine {
         if (record == null) {
             agents.put(event.agentId(), new AgentRecord(incoming, now));
         } else if (incoming == AgentState.RUNNING && record.base == AgentState.RUNNING) {
-            record.reminded = false;
+            record.remindedAt = null;
             // Keep the original RUNNING start so repeated tool-use events don't keep
             // resetting the LONG_RUNNING timer within one continuous working stretch.
             record.base = AgentState.RUNNING;
         } else {
             record.base = incoming;
             record.since = now;
-            record.reminded = false;
+            record.remindedAt = null;
         }
         recomputeAndApply();
     }
@@ -135,7 +143,9 @@ public final class Engine {
         // Pulse when an agent in the winning state got a reminder (idle_prompt).
         boolean pulse = false;
         for (AgentRecord r : agents.values()) {
-            if (r.reminded && effectiveState(r, now) == aggregate) {
+            if (r.remindedAt != null
+                    && Duration.between(r.remindedAt, now).compareTo(PULSE_DURATION) < 0
+                    && effectiveState(r, now) == aggregate) {
                 pulse = true;
                 break;
             }
@@ -145,13 +155,19 @@ public final class Engine {
             return;
         }
         boolean changed = aggregate != lastApplied || pulse != lastPulse;
-        boolean pulseDue = pulse && Duration.between(lastPulseAt, now).compareTo(PULSE_PERIOD) >= 0;
+        boolean pulseDue = pulse && Duration.between(lastPulseAt, now).compareTo(PULSE_HALF) >= 0;
         if (!changed && !pulseDue) {
             return;
         }
         LightState desired = zone.mapping().lightFor(aggregate);
-        if (pulse) {
-            desired = desired.withEffect(Effect.PULSE);
+        boolean nextLow = false;
+        if (pulse && desired.on()) {
+            // First pulse step dims, then alternate; a plain (non-pulse) apply restores full.
+            nextLow = changed || !pulseLow;
+            int brightness = nextLow
+                    ? Math.min(PULSE_LOW_PERCENT, desired.brightnessPercent())
+                    : desired.brightnessPercent();
+            desired = new LightState(true, brightness, desired.color(), Effect.NONE, PULSE_FADE);
         }
         try {
             zone.provider().apply(zone.target(), desired);
@@ -160,6 +176,7 @@ public final class Engine {
             }
             lastApplied = aggregate;
             lastPulse = pulse;
+            pulseLow = nextLow;
             if (pulse) {
                 lastPulseAt = now;
             }

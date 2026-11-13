@@ -5,7 +5,6 @@ import com.vojtechruzicka.lights.core.Aggregator;
 import com.vojtechruzicka.lights.core.StateMapping;
 import com.vojtechruzicka.lights.core.StatusEvent;
 import com.vojtechruzicka.lights.core.Zone;
-import com.vojtechruzicka.lights.light.Effect;
 import com.vojtechruzicka.lights.light.LightProvider;
 import com.vojtechruzicka.lights.light.LightState;
 import com.vojtechruzicka.lights.light.LightTarget;
@@ -19,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EngineTest {
 
@@ -96,12 +96,28 @@ class EngineTest {
         Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
         Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
 
+        LightState success = mapping.lightFor(AgentState.SUCCESS);
         engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, Instant.now()));
         engine.onEvent(StatusEvent.reminder("s", "A", Instant.now()));
-        assertEquals(mapping.lightFor(AgentState.SUCCESS).withEffect(Effect.PULSE), provider.last);
+        // Pulsing = same colour, dimmed (first half-cycle).
+        assertEquals(success.color(), provider.last.color());
+        assertTrue(provider.last.brightnessPercent() < success.brightnessPercent());
 
-        // A new prompt stops the pulse.
+        // A new prompt stops the pulse immediately: plain full-brightness colour.
         engine.onEvent(new StatusEvent(1, "s", "A", AgentState.RUNNING, Instant.now()));
         assertEquals(mapping.lightFor(AgentState.RUNNING), provider.last);
+    }
+
+    @Test
+    void reminderOlderThanPulseDurationDoesNotPulse() {
+        RecordingProvider provider = new RecordingProvider();
+        StateMapping mapping = distinctMapping();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, Instant.now()));
+        Instant old = Instant.now().minus(Engine.PULSE_DURATION).minusSeconds(1);
+        engine.onEvent(StatusEvent.reminder("s", "A", old));
+        assertEquals(mapping.lightFor(AgentState.SUCCESS), provider.last);
     }
 }

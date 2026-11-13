@@ -1,7 +1,6 @@
 package com.vojtechruzicka.lights.hue;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.vojtechruzicka.lights.light.Effect;
 import com.vojtechruzicka.lights.light.LightProvider;
 import com.vojtechruzicka.lights.light.LightState;
 import com.vojtechruzicka.lights.light.LightTarget;
@@ -74,10 +73,6 @@ public final class HueProvider implements LightProvider {
             }
         }
         client.putV2(target.id(), appKey, body);
-        if (state.on() && state.effect() == Effect.PULSE) {
-            // One "breathe" cycle in the current colour; the engine repeats it periodically.
-            client.putV2(target.id(), appKey, Map.of("alert", Map.of("action", "breathe")));
-        }
     }
 
     private static double round(double v) {
