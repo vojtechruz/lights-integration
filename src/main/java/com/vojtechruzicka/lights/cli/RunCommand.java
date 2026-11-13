@@ -3,22 +3,17 @@ package com.vojtechruzicka.lights.cli;
 import com.vojtechruzicka.lights.claude.ClaudeCodeSource;
 import com.vojtechruzicka.lights.config.AppConfig;
 import com.vojtechruzicka.lights.config.ConfigStore;
-import com.vojtechruzicka.lights.core.AgentState;
 import com.vojtechruzicka.lights.core.Aggregator;
 import com.vojtechruzicka.lights.core.StateMapping;
 import com.vojtechruzicka.lights.core.Zone;
 import com.vojtechruzicka.lights.daemon.Engine;
 import com.vojtechruzicka.lights.hue.HueClient;
 import com.vojtechruzicka.lights.hue.HueProvider;
-import com.vojtechruzicka.lights.light.LightState;
 import com.vojtechruzicka.lights.light.LightTarget;
-import com.vojtechruzicka.lights.light.RgbColor;
 import com.vojtechruzicka.lights.sound.SoundNotifier;
 import picocli.CommandLine.Command;
 
 import java.time.Duration;
-import java.util.EnumMap;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Callable;
 
@@ -47,7 +42,8 @@ public final class RunCommand implements Callable<Integer> {
         HueClient client = new HueClient(cfg.hue().bridgeIp());
         HueProvider provider = new HueProvider(client, cfg.hue().appKey());
         LightTarget target = new LightTarget(cfg.monitorTargetId(), "monitor");
-        Zone zone = new Zone("agents", provider, target, defaultMapping());
+        StateMapping mapping = StateMapping.fromConfig(cfg.colors());
+        Zone zone = new Zone("agents", provider, target, mapping);
 
         Duration threshold = Duration.ofSeconds(cfg.daemon().longRunningSeconds());
         Engine engine = new Engine(zone, new Aggregator(), threshold);
@@ -65,6 +61,7 @@ public final class RunCommand implements Callable<Integer> {
         System.out.println("  monitor:      " + cfg.monitorTargetId());
         System.out.println("  long-running: " + cfg.daemon().longRunningSeconds() + "s");
         System.out.println("  segments:     " + (segments > 1 ? "up to " + segments + " sessions" : "off (one colour)"));
+        System.out.println("  colors:       " + mapping.describe());
         System.out.println("  sounds:       " + (sounds.configured().isEmpty() ? "off" : sounds.configured()));
         System.out.println("Press Ctrl+C to stop.");
 
@@ -77,17 +74,5 @@ public final class RunCommand implements Callable<Integer> {
         }));
         latch.await();
         return 0;
-    }
-
-    /** Default state → colour mapping. Will become config-driven (see roadmap). */
-    private static StateMapping defaultMapping() {
-        Map<AgentState, LightState> m = new EnumMap<>(AgentState.class);
-        m.put(AgentState.ERROR, LightState.solid(new RgbColor(255, 0, 0), 80));
-        m.put(AgentState.WAITING_FOR_INPUT, LightState.solid(new RgbColor(255, 140, 0), 80));
-        m.put(AgentState.LONG_RUNNING, LightState.solid(new RgbColor(160, 0, 255), 80));
-        m.put(AgentState.RUNNING, LightState.solid(new RgbColor(0, 60, 255), 70));
-        m.put(AgentState.SUCCESS, LightState.solid(new RgbColor(0, 255, 60), 90));
-        m.put(AgentState.IDLE, LightState.off());
-        return new StateMapping(m);
     }
 }
