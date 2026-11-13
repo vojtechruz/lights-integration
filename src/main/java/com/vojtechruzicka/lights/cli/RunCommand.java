@@ -13,6 +13,7 @@ import com.vojtechruzicka.lights.hue.HueProvider;
 import com.vojtechruzicka.lights.light.LightState;
 import com.vojtechruzicka.lights.light.LightTarget;
 import com.vojtechruzicka.lights.light.RgbColor;
+import com.vojtechruzicka.lights.sound.SoundNotifier;
 import picocli.CommandLine.Command;
 
 import java.time.Duration;
@@ -50,6 +51,8 @@ public final class RunCommand implements Callable<Integer> {
 
         Duration threshold = Duration.ofSeconds(cfg.daemon().longRunningSeconds());
         Engine engine = new Engine(zone, new Aggregator(), threshold);
+        SoundNotifier sounds = SoundNotifier.fromConfig(cfg.sounds());
+        engine.setStateChangeListener(sounds);
         engine.start();
 
         ClaudeCodeSource source = new ClaudeCodeSource(cfg.daemon().ingestPort());
@@ -59,12 +62,14 @@ public final class RunCommand implements Callable<Integer> {
         System.out.println("  ingest:       http://127.0.0.1:" + cfg.daemon().ingestPort() + "/event");
         System.out.println("  monitor:      " + cfg.monitorTargetId());
         System.out.println("  long-running: " + cfg.daemon().longRunningSeconds() + "s");
+        System.out.println("  sounds:       " + (sounds.configured().isEmpty() ? "off" : sounds.configured()));
         System.out.println("Press Ctrl+C to stop.");
 
         CountDownLatch latch = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             source.stop();
             engine.stop();
+            sounds.close();
             latch.countDown();
         }));
         latch.await();

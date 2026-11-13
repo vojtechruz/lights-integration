@@ -2,6 +2,7 @@ package com.vojtechruzicka.lights.daemon;
 
 import com.vojtechruzicka.lights.core.AgentState;
 import com.vojtechruzicka.lights.core.Aggregator;
+import com.vojtechruzicka.lights.core.StateChangeListener;
 import com.vojtechruzicka.lights.core.StatusEvent;
 import com.vojtechruzicka.lights.core.Zone;
 import com.vojtechruzicka.lights.light.Effect;
@@ -77,6 +78,13 @@ public final class Engine {
         this.longRunningThreshold = longRunningThreshold;
     }
 
+    private StateChangeListener listener = StateChangeListener.NONE;
+
+    /** Per-agent state changes (e.g. for sounds). Set before {@link #start()}. */
+    public void setStateChangeListener(StateChangeListener listener) {
+        this.listener = listener != null ? listener : StateChangeListener.NONE;
+    }
+
     /** Starts the 1 Hz ticker that applies time-based transitions. */
     public void start() {
         ticker.scheduleAtFixedRate(this::safeTick, 1, 1, TimeUnit.SECONDS);
@@ -97,6 +105,7 @@ public final class Engine {
             return;
         }
         AgentState incoming = event.state();
+        AgentState previous = record != null ? record.base : null;
 
         if (record == null) {
             agents.put(event.agentId(), new AgentRecord(incoming, now));
@@ -109,6 +118,13 @@ public final class Engine {
             record.base = incoming;
             record.since = now;
             record.remindedAt = null;
+        }
+        if (incoming != previous) {
+            try {
+                listener.onStateChange(event.agentId(), previous, incoming);
+            } catch (Exception e) {
+                log.warn("state change listener failed: {}", e.getMessage());
+            }
         }
         recomputeAndApply();
     }

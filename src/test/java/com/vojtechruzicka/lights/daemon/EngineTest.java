@@ -120,4 +120,22 @@ class EngineTest {
         engine.onEvent(StatusEvent.reminder("s", "A", old));
         assertEquals(mapping.lightFor(AgentState.SUCCESS), provider.last);
     }
+
+    @Test
+    void listenerGetsPerAgentChangesButNotRepeats() {
+        RecordingProvider provider = new RecordingProvider();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), distinctMapping());
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+        java.util.List<String> changes = new java.util.ArrayList<>();
+        engine.setStateChangeListener((id, from, to) -> changes.add(id + ":" + from + "->" + to));
+
+        Instant now = Instant.now();
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.RUNNING, now));
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.RUNNING, now));
+        engine.onEvent(new StatusEvent(1, "s", "B", AgentState.RUNNING, now));
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, now));
+        engine.onEvent(StatusEvent.reminder("s", "A", now));
+
+        assertEquals(java.util.List.of("A:null->RUNNING", "B:null->RUNNING", "A:RUNNING->SUCCESS"), changes);
+    }
 }
