@@ -5,6 +5,7 @@ import com.vojtechruzicka.lights.core.Aggregator;
 import com.vojtechruzicka.lights.core.StateMapping;
 import com.vojtechruzicka.lights.core.StatusEvent;
 import com.vojtechruzicka.lights.core.Zone;
+import com.vojtechruzicka.lights.light.Effect;
 import com.vojtechruzicka.lights.light.LightProvider;
 import com.vojtechruzicka.lights.light.LightState;
 import com.vojtechruzicka.lights.light.LightTarget;
@@ -70,5 +71,37 @@ class EngineTest {
 
         engine.onEvent(new StatusEvent(1, "s", "A", AgentState.RUNNING, Instant.now().minusSeconds(30)));
         assertEquals(mapping.lightFor(AgentState.LONG_RUNNING), provider.last);
+    }
+
+    @Test
+    void successIsHeldAndIdleKeepsLastColour() {
+        RecordingProvider provider = new RecordingProvider();
+        StateMapping mapping = distinctMapping();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+
+        // SUCCESS stamped long ago must still be SUCCESS (no decay to IDLE).
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, Instant.now().minusSeconds(600)));
+        assertEquals(mapping.lightFor(AgentState.SUCCESS), provider.last);
+
+        // Session end (IDLE) keeps the last colour instead of switching off.
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.IDLE, Instant.now()));
+        assertEquals(mapping.lightFor(AgentState.SUCCESS), provider.last);
+    }
+
+    @Test
+    void reminderPulsesInCurrentColourUntilStateChanges() {
+        RecordingProvider provider = new RecordingProvider();
+        StateMapping mapping = distinctMapping();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, Instant.now()));
+        engine.onEvent(StatusEvent.reminder("s", "A", Instant.now()));
+        assertEquals(mapping.lightFor(AgentState.SUCCESS).withEffect(Effect.PULSE), provider.last);
+
+        // A new prompt stops the pulse.
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.RUNNING, Instant.now()));
+        assertEquals(mapping.lightFor(AgentState.RUNNING), provider.last);
     }
 }

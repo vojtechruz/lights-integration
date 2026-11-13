@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClaudeCodeSourceTest {
@@ -45,5 +46,16 @@ class ClaudeCodeSourceTest {
         } finally {
             source.stop();
         }
+    }
+
+    @Test
+    void idlePromptNotificationIsIgnoredButPermissionPromptWaits() {
+        assertNull(ClaudeCodeSource.mapState("Notification", "idle_prompt"));
+        assertTrue(ClaudeCodeSource.isReminder("Notification", "idle_prompt"));
+        assertEquals(AgentState.ERROR, ClaudeCodeSource.mapState("StopFailure", null));
+        assertEquals(AgentState.ERROR, ClaudeCodeSource.mapState("Notification", "quota_auto_resume_stale"));
+        assertNull(ClaudeCodeSource.mapState("PostToolUseFailure", null));
+        assertEquals(AgentState.WAITING_FOR_INPUT, ClaudeCodeSource.mapState("Notification", "permission_prompt"));
+        assertEquals(AgentState.WAITING_FOR_INPUT, ClaudeCodeSource.mapState("Notification", null));
     }
 }

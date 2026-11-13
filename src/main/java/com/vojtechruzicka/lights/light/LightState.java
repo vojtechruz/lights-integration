@@ -25,6 +25,10 @@ public record LightState(
         return new LightState(true, brightnessPercent, color, Effect.NONE, Duration.ofMillis(400));
     }
 
+    public LightState withEffect(Effect newEffect) {
+        return new LightState(on, brightnessPercent, color, newEffect, transition);
+    }
+
     public static LightState off() {
         return new LightState(false, 0, new RgbColor(0, 0, 0), Effect.NONE, Duration.ofMillis(400));
     }

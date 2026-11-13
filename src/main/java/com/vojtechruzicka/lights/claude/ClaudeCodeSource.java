@@ -87,21 +87,47 @@ public final class ClaudeCodeSource implements StatusSource {
         JsonNode node = mapper.readTree(body);
         String eventName = node.path("hook_event_name").asText(null);
         String agentId = node.path("session_id").asText("default");
-        AgentState state = mapState(eventName);
+        String notificationType = node.path("notification_type").asText(null);
+        if (isReminder(eventName, notificationType)) {
+            return StatusEvent.reminder(id(), agentId, Instant.now());
+        }
+        AgentState state = mapState(eventName, notificationType);
         if (state == null) {
             return null;
+        }
+        if (state == AgentState.ERROR) {
+            log.info("error event {} for {}: {} {}", eventName, agentId,
+                    node.path("error").asText(notificationType), node.path("error_details").asText(""));
         }
         return new StatusEvent(StatusEvent.CURRENT_SCHEMA_VERSION, id(), agentId, state, Instant.now());
     }
 
-    /** Maps a Claude Code hook event name to a state, or {@code null} to ignore it. */
-    private static AgentState mapState(String eventName) {
+    /**
+     * {@code idle_prompt} is a "still there?" notification sent ~60 s after Claude finished.
+     * It is not a state change; the agent keeps its state and the light starts pulsing.
+     */
+    static boolean isReminder(String eventName, String notificationType) {
+        return "Notification".equals(eventName) && "idle_prompt".equals(notificationType);
+    }
+
+    /**
+     * Maps a Claude Code hook event to a state, or {@code null} to ignore it.
+     * {@code StopFailure} (turn ended by an API error: rate limit, billing, auth, overload...)
+     * and usage-limit notifications ({@code quota_auto_resume_*}) are errors. Ordinary tool
+     * failures ({@code PostToolUseFailure}) deliberately are not: Claude routinely recovers.
+     */
+    static AgentState mapState(String eventName, String notificationType) {
         if (eventName == null) {
             return null;
         }
         return switch (eventName) {
             case "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStop" -> AgentState.RUNNING;
-            case "Notification" -> AgentState.WAITING_FOR_INPUT;
+            case "StopFailure" -> AgentState.ERROR;
+            case "Notification" -> {
+                if (isReminder(eventName, notificationType)) yield null;
+                if (notificationType != null && notificationType.startsWith("quota_auto_resume")) yield AgentState.ERROR;
+                yield AgentState.WAITING_FOR_INPUT;
+            }
             case "Stop" -> AgentState.SUCCESS;
             case "SessionStart", "SessionEnd" -> AgentState.IDLE;
             default -> null;
