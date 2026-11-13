@@ -138,4 +138,74 @@ class EngineTest {
 
         assertEquals(java.util.List.of("A:null->RUNNING", "B:null->RUNNING", "A:RUNNING->SUCCESS"), changes);
     }
+
+    @Test
+    void segmentsShowOneSectionPerAgentInStableOrder() {
+        RecordingProvider provider = new RecordingProvider();
+        StateMapping mapping = distinctMapping();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+        engine.setMaxSegments(3);
+        Instant now = Instant.now();
+
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.RUNNING, now));
+        assertTrue(provider.last.segments().isEmpty(), "one agent = one colour");
+
+        engine.onEvent(new StatusEvent(1, "s", "B", AgentState.WAITING_FOR_INPUT, now));
+        assertEquals(java.util.List.of(mapping.lightFor(AgentState.RUNNING).color(),
+                mapping.lightFor(AgentState.WAITING_FOR_INPUT).color()), provider.last.segments());
+
+        // A finishing keeps its place (first section), it does not move behind B.
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, now));
+        assertEquals(mapping.lightFor(AgentState.SUCCESS).color(), provider.last.segments().get(0));
+    }
+
+    @Test
+    void moreAgentsThanSegmentsMergeTheRestIntoTheLastSection() {
+        RecordingProvider provider = new RecordingProvider();
+        StateMapping mapping = distinctMapping();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+        engine.setMaxSegments(2);
+        Instant now = Instant.now();
+
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, now));
+        engine.onEvent(new StatusEvent(1, "s", "B", AgentState.RUNNING, now));
+        engine.onEvent(new StatusEvent(1, "s", "C", AgentState.ERROR, now));
+
+        assertEquals(java.util.List.of(mapping.lightFor(AgentState.SUCCESS).color(),
+                mapping.lightFor(AgentState.ERROR).color()), provider.last.segments());
+    }
+
+    @Test
+    void staleAgentsAreDropped() {
+        RecordingProvider provider = new RecordingProvider();
+        StateMapping mapping = distinctMapping();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+        engine.setMaxSegments(3);
+
+        Instant old = Instant.now().minus(Engine.STALE_AFTER).minusSeconds(5);
+        engine.onEvent(new StatusEvent(1, "s", "OLD", AgentState.ERROR, old));
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.RUNNING, Instant.now()));
+
+        assertEquals(mapping.lightFor(AgentState.RUNNING), provider.last);
+    }
+
+    @Test
+    void sessionEndFreesItsSection() {
+        RecordingProvider provider = new RecordingProvider();
+        StateMapping mapping = distinctMapping();
+        Zone zone = new Zone("z", provider, new LightTarget("t", "t"), mapping);
+        Engine engine = new Engine(zone, new Aggregator(), Duration.ofMinutes(5));
+        engine.setMaxSegments(3);
+        Instant now = Instant.now();
+
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.SUCCESS, now));
+        engine.onEvent(new StatusEvent(1, "s", "B", AgentState.RUNNING, now));
+        assertEquals(2, provider.last.segments().size());
+
+        engine.onEvent(new StatusEvent(1, "s", "A", AgentState.IDLE, now)); // SessionEnd / clear
+        assertEquals(mapping.lightFor(AgentState.RUNNING), provider.last);
+    }
 }

@@ -95,6 +95,9 @@ public final class ClaudeCodeSource implements StatusSource {
         if (state == null) {
             return null;
         }
+        if ("SessionEnd".equals(eventName)) {
+            log.info("SessionEnd for {} (reason: {})", agentId, node.path("reason").asText("?"));
+        }
         if (state == AgentState.ERROR) {
             log.info("error event {} for {}: {} {}", eventName, agentId,
                     node.path("error").asText(notificationType), node.path("error_details").asText(""));

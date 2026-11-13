@@ -53,6 +53,8 @@ public final class RunCommand implements Callable<Integer> {
         Engine engine = new Engine(zone, new Aggregator(), threshold);
         SoundNotifier sounds = SoundNotifier.fromConfig(cfg.sounds());
         engine.setStateChangeListener(sounds);
+        int segments = cfg.maxSegments() != null ? cfg.maxSegments() : 1;
+        engine.setMaxSegments(segments);
         engine.start();
 
         ClaudeCodeSource source = new ClaudeCodeSource(cfg.daemon().ingestPort());
@@ -62,6 +64,7 @@ public final class RunCommand implements Callable<Integer> {
         System.out.println("  ingest:       http://127.0.0.1:" + cfg.daemon().ingestPort() + "/event");
         System.out.println("  monitor:      " + cfg.monitorTargetId());
         System.out.println("  long-running: " + cfg.daemon().longRunningSeconds() + "s");
+        System.out.println("  segments:     " + (segments > 1 ? "up to " + segments + " sessions" : "off (one colour)"));
         System.out.println("  sounds:       " + (sounds.configured().isEmpty() ? "off" : sounds.configured()));
         System.out.println("Press Ctrl+C to stop.");
 

@@ -63,11 +63,22 @@ public final class HueProvider implements LightProvider {
         body.put("on", Map.of("on", state.on()));
         if (state.on()) {
             body.put("dimming", Map.of("brightness", state.brightnessPercent()));
-            double[] xy = HueColor.toXy(state.color());
-            body.put("color", Map.of("xy", Map.of("x", round(xy[0]), "y", round(xy[1]))));
+            boolean group = target.id().startsWith("grouped_light/");
+            if (state.isSegmented() && !group) {
+                // Gradient strip: separate sections in order (max 5 points on Hue).
+                List<Map<String, Object>> points = new ArrayList<>();
+                for (var c : state.segments().subList(0, Math.min(5, state.segments().size()))) {
+                    double[] p = HueColor.toXy(c);
+                    points.add(Map.of("color", Map.of("xy", Map.of("x", round(p[0]), "y", round(p[1])))));
+                }
+                body.put("gradient", Map.of("mode", "segmented_palette", "points", points));
+            } else {
+                // A plain colour also clears any previous gradient on the strip.
+                double[] xy = HueColor.toXy(state.color());
+                body.put("color", Map.of("xy", Map.of("x", round(xy[0]), "y", round(xy[1]))));
+            }
 
             long ms = state.transition().toMillis();
-            boolean group = target.id().startsWith("grouped_light/");
             if (ms > 0 && !group) {
                 body.put("dynamics", Map.of("duration", (int) Math.min(ms, 60_000)));
             }
